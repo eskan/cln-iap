@@ -22,7 +22,7 @@ import (
 )
 
 func testApp() *app {
-	return newApp(config{cas: "https://cas.example.net/cas", auth: "https://auth.example.org",
+	return newApp(config{cas: "https://cas.example.net/cas", auth: "https://iap.example.org",
 		domain: "example.org", hosts: map[string]bool{"app1.example.org": true, "app2.example.org": true},
 		secret: []byte(strings.Repeat("s", 32)), ttl: 4 * time.Hour}, newLogger(io.Discard, slog.LevelInfo))
 }
@@ -179,14 +179,14 @@ func TestWildcardHosts(t *testing.T) {
 		})
 	}
 	a.hosts = map[string]bool{"*.example.org": true}
-	if a.allowedHost("example.org") || a.allowedHost("auth.example.org") {
+	if a.allowedHost("example.org") || a.allowedHost("iap.example.org") {
 		t.Fatal("wildcard allowed base domain or authentication host")
 	}
 	a.hosts["example.org"] = true
 	if !a.allowedHost("example.org") {
 		t.Fatal("explicit base domain rejected")
 	}
-	for _, target := range []string{"https://auth.example.org/", "http://app.example.org/", "https://user@app.example.org/", "https://app.example.org:443/"} {
+	for _, target := range []string{"https://iap.example.org/", "http://app.example.org/", "https://user@app.example.org/", "https://app.example.org:443/"} {
 		if a.validReturn(target) {
 			t.Errorf("unsafe wildcard return accepted: %s", target)
 		}
@@ -250,7 +250,7 @@ func TestCookieSize(t *testing.T) {
 
 func TestRedirectsAndHeaders(t *testing.T) {
 	a := testApp()
-	for _, target := range []string{"https://evil.org/", "//evil.org/", "http://app1.example.org/", "https://app1.example.org.evil.org/", "https://app1.example.org:443/", "https://user@app1.example.org/", "https://auth.example.org/", "https://app1.example.org/#x", "https://app1.example.org\\@evil.org/", "https://app1.example.org/\r\n"} {
+	for _, target := range []string{"https://evil.org/", "//evil.org/", "http://app1.example.org/", "https://app1.example.org.evil.org/", "https://app1.example.org:443/", "https://user@app1.example.org/", "https://iap.example.org/", "https://app1.example.org/#x", "https://app1.example.org\\@evil.org/", "https://app1.example.org/\r\n"} {
 		if w := request(a, "/login?"+url.Values{"return": {target}}.Encode()); w.Code != 400 || len(w.Result().Cookies()) != 0 {
 			t.Errorf("unsafe return accepted: %q", target)
 		}
@@ -405,7 +405,7 @@ func TestCASResponses(t *testing.T) {
 }
 
 func TestConfig(t *testing.T) {
-	baseline := map[string]string{"CAS_URL": "https://cas.example.net/cas", "AUTH_URL": "https://auth.example.org", "COOKIE_DOMAIN": "example.org", "ALLOWED_HOSTS": "app1.example.org,app2.example.org", "JWT_SECRET": strings.Repeat("s", 32), "JWT_SECRET_FILE": "", "JWT_TTL": "", "LOG_LEVEL": ""}
+	baseline := map[string]string{"CAS_URL": "https://cas.example.net/cas", "IAP_URL": "https://iap.example.org", "COOKIE_DOMAIN": "example.org", "ALLOWED_HOSTS": "app1.example.org,app2.example.org", "JWT_SECRET": strings.Repeat("s", 32), "JWT_SECRET_FILE": "", "JWT_TTL": "", "LOG_LEVEL": ""}
 	for key, value := range baseline {
 		t.Setenv(key, value)
 	}
@@ -414,9 +414,9 @@ func TestConfig(t *testing.T) {
 	}
 	for key, values := range map[string][]string{
 		"CAS_URL":       {"http://cas.example.net", "https://user@cas.example.net", "https://cas.example.net?x=1"},
-		"AUTH_URL":      {"https://auth.example.org/path", "https://evil.org"},
+		"IAP_URL":       {"https://iap.example.org/path", "https://evil.org"},
 		"COOKIE_DOMAIN": {"org", "other.org", ".example.org"},
-		"ALLOWED_HOSTS": {"", "*", "*example.org", "app.*.example.org", "*.*.example.org", "*.other.org", "*.org", "*.example.org.evil.org", "*.example.org:443", "*.Example.org", "*.example.org,", "app.example.org.evil.org", "auth.example.org", "app.example.org:443"},
+		"ALLOWED_HOSTS": {"", "*", "*example.org", "app.*.example.org", "*.*.example.org", "*.other.org", "*.org", "*.example.org.evil.org", "*.example.org:443", "*.Example.org", "*.example.org,", "app.example.org.evil.org", "iap.example.org", "app.example.org:443"},
 		"JWT_SECRET":    {"", "short"}, "JWT_SECRET_FILE": {"/missing"}, "JWT_TTL": {"0s", "-1h", "1.5s", "invalid"},
 	} {
 		for _, value := range values {
@@ -428,14 +428,14 @@ func TestConfig(t *testing.T) {
 			})
 		}
 	}
-	for _, value := range []string{"*.example.org", "*.dev.example.org, app1.example.org", "example.org,*.example.org", "*.auth.example.org"} {
+	for _, value := range []string{"*.example.org", "*.dev.example.org, app1.example.org", "example.org,*.example.org", "*.iap.example.org"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("ALLOWED_HOSTS", value)
 			c, err := loadConfig()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !newApp(c, newLogger(io.Discard, slog.LevelInfo)).allowedHost("app.dev.example.org") && value != "*.auth.example.org" {
+			if !newApp(c, newLogger(io.Discard, slog.LevelInfo)).allowedHost("app.dev.example.org") && value != "*.iap.example.org" {
 				t.Fatal("wildcard configuration did not allow nested host")
 			}
 		})
@@ -509,7 +509,7 @@ func TestTraefik(t *testing.T) {
       middlewares: [auth]
       tls: {}
     login:
-      rule: "Host(`+"`auth.example.org`"+`) && (Path(`+"`/login`"+`) || Path(`+"`/callback`"+`))"
+      rule: "Host(`+"`iap.example.org`"+`) && (Path(`+"`/login`"+`) || Path(`+"`/callback`"+`))"
       service: auth
       tls: {}
   middlewares:
@@ -558,7 +558,7 @@ func TestTraefik(t *testing.T) {
 	// Docker may publish the port before Traefik has loaded its routers.
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		res, err := client.Get("https://auth.example.org/login")
+		res, err := client.Get("https://iap.example.org/login")
 		if err == nil {
 			res.Body.Close()
 			if res.StatusCode == 400 {
@@ -600,7 +600,7 @@ func TestTraefik(t *testing.T) {
 	if code, _, _ := get(&noRedirect, "POST", "https://app1.example.org/", false); code != 401 || calls.Load() != 0 {
 		t.Fatal("unauthenticated POST passed")
 	}
-	if code, _, _ := get(&noRedirect, "GET", "https://auth.example.org/verify", false); code != 404 {
+	if code, _, _ := get(&noRedirect, "GET", "https://iap.example.org/verify", false); code != 404 {
 		t.Fatal("verify publicly routed")
 	}
 	code, body, _ := get(client, "GET", "https://app1.example.org/a%2Fb?x=1&x=2", false)

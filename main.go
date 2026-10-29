@@ -1,5 +1,5 @@
 // CAS ForwardAuth. Terminate HTTPS at Traefik; expose only /login and /callback
-// on AUTH_URL, without ForwardAuth. Keep /verify and application ports private.
+// on IAP_URL, without ForwardAuth. Keep /verify and application ports private.
 // Use trustForwardHeader=false and run ForwardAuth before path rewriting.
 package main
 
@@ -71,7 +71,7 @@ func httpsURL(s string) (*url.URL, error) {
 }
 
 func loadConfig() (config, error) {
-	c := config{cas: os.Getenv("CAS_URL"), auth: os.Getenv("AUTH_URL"),
+	c := config{cas: os.Getenv("CAS_URL"), auth: os.Getenv("IAP_URL"),
 		domain: os.Getenv("COOKIE_DOMAIN"), hosts: map[string]bool{}, ttl: 4 * time.Hour}
 	level, err := parseLogLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
@@ -85,12 +85,12 @@ func loadConfig() (config, error) {
 	c.cas = strings.TrimRight(c.cas, "/")
 	auth, err := httpsURL(c.auth)
 	if err != nil || auth.Path != "" && auth.Path != "/" {
-		return c, errors.New("AUTH_URL must be an HTTPS origin")
+		return c, errors.New("IAP_URL must be an HTTPS origin")
 	}
 	c.auth = strings.TrimSuffix(c.auth, "/")
 	within := func(host string) bool { return host == c.domain || strings.HasSuffix(host, "."+c.domain) }
 	if !dnsName(c.domain) || !within(auth.Host) {
-		return c, errors.New("invalid COOKIE_DOMAIN or AUTH_URL outside domain")
+		return c, errors.New("invalid COOKIE_DOMAIN or IAP_URL outside domain")
 	}
 	for _, host := range strings.Split(os.Getenv("ALLOWED_HOSTS"), ",") {
 		host = strings.TrimSpace(host)

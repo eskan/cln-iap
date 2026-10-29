@@ -21,7 +21,7 @@ job "cln-iap" {
       }
       env {
         CAS_URL         = "https://cas.example.org/cas"
-        AUTH_URL        = "https://auth.example.org"
+        IAP_URL        = "https://iap.example.org"
         COOKIE_DOMAIN   = "example.org"
         ALLOWED_HOSTS   = "site.example.org"
         JWT_SECRET_FILE = "/secrets/jwt_secret"
@@ -39,7 +39,7 @@ job "cln-iap" {
         address_mode = "host"
         tags = [
           "traefik.enable=true",
-          "traefik.http.routers.cln-iap.rule=Host(`auth.example.org`) && (Path(`/login`) || Path(`/callback`))",
+          "traefik.http.routers.cln-iap.rule=Host(`iap.example.org`) && (Path(`/login`) || Path(`/callback`))",
           "traefik.http.routers.cln-iap.entrypoints=websecure",
           "traefik.http.routers.cln-iap.tls=true",
           "traefik.http.routers.cln-iap.service=cln-iap",

@@ -17,7 +17,7 @@ spec:
             - containerPort: 8080
           env:
             - {name: CAS_URL, value: 'https://cas.example.org/cas'}
-            - {name: AUTH_URL, value: 'https://auth.example.org'}
+            - {name: IAP_URL, value: 'https://iap.example.org'}
             - {name: COOKIE_DOMAIN, value: 'example.org'}
             - {name: ALLOWED_HOSTS, value: 'site.example.org'}
             - {name: JWT_SECRET_FILE, value: '/run/secrets/jwt_secret'}
@@ -55,7 +55,7 @@ spec:
   entryPoints: [websecure]
   routes:
     - kind: Rule
-      match: Host(`auth.example.org`) && (Path(`/login`) || Path(`/callback`))
+      match: Host(`iap.example.org`) && (Path(`/login`) || Path(`/callback`))
       services:
         - name: cln-iap
           port: 8080

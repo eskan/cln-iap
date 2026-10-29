@@ -1,12 +1,8 @@
-# cln-iap
+# cln-iap ( middleware traefik )
 
-**cln-iap** est un Identity-Aware Proxy (IAP) minimaliste en Go, destiné à protéger les applications Web derrière Traefik en imposant une authentification préalable. Il agit comme un « VPN applicatif » : seuls les utilisateurs authentifiés peuvent accéder aux applications, directement depuis leur navigateur, sans installer de client VPN ni ouvrir un accès au réseau interne.
+**cln-iap** (Séléniap) est un _Identity-Aware Proxy_ (IAP) qui protège les applications Web en imposant une authentification préalable, transparente pour l'utilisateur. À la manière d'un VPN applicatif, il permet d'accéder aux services depuis un simple navigateur, sans client VPN ni exposition du réseau interne.
 
-## Genèse et objectif
-
-Une application peut disposer de son propre mécanisme d'authentification tout en exposant des fonctionnalités vulnérables avant la connexion. cln-iap est né de l'idée de placer une barrière d'authentification en amont, au niveau du reverse proxy.
-
-L'objectif est de réduire l'exposition des applications aux requêtes anonymes, sans modifier leur code. Cette protection complète les contrôles d'accès des applications et ne remplace pas leurs mises à jour de sécurité.
+Le projet est né d'un constat : même lorsqu'une application dispose de son propre système d'authentification, elle peut présenter des vulnérabilités exploitables avant toute connexion. **cln-iap place donc une barrière d'authentification en amont, au niveau du reverse proxy**, afin de réduire l'exposition aux requêtes anonymes sans modifier les applications. Cette protection supplémentaire ne se substitue ni à leurs contrôles d'accès ni à leurs mises à jour de sécurité.
 
 ## Fonctionnement
 
@@ -29,17 +25,16 @@ flowchart TD
 
 La redirection concerne les requêtes GET/HEAD. Sans cookie valide, les autres méthodes reçoivent une réponse `401`.
 
-## Installation
+## Intégration
 
-L’image utilisée est `ghcr.io/eskan/cln-iap:latest`. Choisir votre environnement : chaque guide couvre le secret, le démarrage de cln-iap, les routes de connexion et l’ajout du middleware.
-
-L’image est construite pour **amd64 et arm64** par [GitHub Actions](docs/image.md).
+Configurer les [variables de cln-iap](docs/configuration.md), puis ajouter le middleware selon votre environnement :
 
 - [Kubernetes](docs/kube.md)
 - [Docker Compose](docs/compose.md)
 - [Docker Swarm](docs/swarm.md)
 - [Nomad](docs/nomad.md)
+- [Traefik par fichier YAML](docs/traefik.md)
 
-Les exemples supposent Traefik et CAS disponibles. Consulter les [variables et prérequis communs](docs/configuration.md). Pour une configuration du middleware par fichier, voir [Traefik YAML](docs/traefik.md).
+Ces guides concernent une installation Traefik existante et un service cln-iap déjà démarré. Ils montrent comment déclarer le middleware et l’ajouter à un routeur existant.
 
 cln-iap fonctionne sans base de données. Il ne remplace pas l’authentification propre aux sites et ne leur transmet pas l’identité de l’utilisateur.
