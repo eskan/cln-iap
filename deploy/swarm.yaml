@@ -1,0 +1,35 @@
+services:
+  cln-iap:
+    image: ghcr.io/eskan/cln-iap:latest
+    environment:
+      CAS_URL: https://cas.example.org/cas
+      AUTH_URL: https://auth.example.org
+      COOKIE_DOMAIN: example.org
+      ALLOWED_HOSTS: site.example.org
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+    secrets:
+      - jwt_secret
+    networks:
+      - proxy
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=proxy"
+        - "traefik.http.routers.cln-iap.rule=Host(`auth.example.org`) && (Path(`/login`) || Path(`/callback`))"
+        - "traefik.http.routers.cln-iap.entrypoints=websecure"
+        - "traefik.http.routers.cln-iap.tls=true"
+        - "traefik.http.routers.cln-iap.service=cln-iap"
+        - "traefik.http.services.cln-iap.loadbalancer.server.port=8080"
+        - "traefik.http.middlewares.cas.forwardauth.address=http://iap_cln-iap:8080/verify"
+        - "traefik.http.middlewares.cas.forwardauth.trustForwardHeader=false"
+        - "traefik.http.middlewares.cas.forwardauth.authRequestHeaders=Cookie"
+
+secrets:
+  jwt_secret:
+    external: true
+    name: cln_iap_jwt
+
+networks:
+  proxy:
+    external: true

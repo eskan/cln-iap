@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cln-iap
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: cln-iap}
+  template:
+    metadata:
+      labels: {app: cln-iap}
+    spec:
+      containers:
+        - name: cln-iap
+          image: ghcr.io/eskan/cln-iap:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - {name: CAS_URL, value: 'https://cas.example.org/cas'}
+            - {name: AUTH_URL, value: 'https://auth.example.org'}
+            - {name: COOKIE_DOMAIN, value: 'example.org'}
+            - {name: ALLOWED_HOSTS, value: 'site.example.org'}
+            - {name: JWT_SECRET_FILE, value: '/run/secrets/jwt_secret'}
+          volumeMounts:
+            - {name: jwt, mountPath: /run/secrets, readOnly: true}
+      volumes:
+        - name: jwt
+          secret:
+            secretName: cln-iap-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cln-iap
+spec:
+  selector: {app: cln-iap}
+  ports:
+    - {port: 8080, targetPort: 8080}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: cas
+spec:
+  forwardAuth:
+    address: http://cln-iap.default.svc.cluster.local:8080/verify
+    trustForwardHeader: false
+    authRequestHeaders: [Cookie]
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: cln-iap
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`auth.example.org`) && (Path(`/login`) || Path(`/callback`))
+      services:
+        - name: cln-iap
+          port: 8080
+  tls: {}
