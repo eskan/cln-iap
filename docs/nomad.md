@@ -1,27 +1,22 @@
-# Installer avec Nomad
+# Nomad
 
-[← README](../README.md) · [Variables](configuration.md)
+[Guide utilisateur](../README.md)
 
-Prérequis : clients Nomad avec Docker, variables Nomad accessibles au job et Traefik avec le **fournisseur Nomad** et HTTPS configuré. Traefik doit joindre les ports alloués sur le réseau privé des clients.
+Dans la tâche Traefik existante, activer le plugin avec `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` et monter :
 
-1. Récupérer [cln-iap.nomad.hcl](../deploy/cln-iap.nomad.hcl). Adapter `dc1`, les domaines, les variables et l’entrypoint `websecure`.
-2. Créer le secret une seule fois, puis soumettre le job :
+- Le répertoire du plugin dans `/plugins-local/src/github.com/eskan/cln-iap`.
+- La configuration administrateur dans `/etc/traefik/cln-iap.json`.
+- Le secret dans `/run/secrets/cln_iap_jwt`.
 
-```sh
-nomad var put nomad/jobs/cln-iap jwt_secret="$(openssl rand -hex 32)"
-nomad job validate cln-iap.nomad.hcl
-nomad job run cln-iap.nomad.hcl
-nomad job status cln-iap
-```
+Distribuer la configuration et le secret uniquement à la tâche Traefik, avec les permissions Nomad/Vault de l’administrateur. `jwtSecretFile` référence le chemin du secret à l’intérieur de Traefik. Conserver les options du fournisseur Nomad et les paramètres HTTPS.
 
-Le job télécharge `ghcr.io/eskan/cln-iap:latest`, monte le secret et déclare les routes de connexion et le middleware `cas`. L’adresse de vérification utilise `${NOMAD_ADDR_http}`, renseignée par Nomad à chaque allocation. Cet exemple utilise une seule instance : plusieurs adresses déclarées sous le même middleware seraient en conflit.
-
-3. Dans les tags du service concerné (enregistré avec `provider = "nomad"`), ajouter cette entrée en remplaçant `mon-routeur` par son nom Traefik :
+Dans le bloc `service` de l’application, enregistré avec `provider = "nomad"`, ajouter aux tags existants :
 
 ```hcl
-"traefik.http.routers.mon-routeur.middlewares=cas@nomad"
+tags = [
+  "traefik.http.middlewares.mon-app-iap.plugin.cln-iap.allowedLogins=alice,bob",
+  "traefik.http.routers.mon-app.middlewares=mon-app-iap",
+]
 ```
 
-Conserver les middlewares existants après `cas@nomad`, puis soumettre le job modifié. Ouvrir le site pour vérifier la connexion CAS.
-
-Références : [variables réseau Nomad](https://developer.hashicorp.com/nomad/docs/reference/runtime-environment-settings), [fournisseur Nomad de Traefik](https://doc.traefik.io/traefik/reference/routing-configuration/other-providers/nomad/).
+Le service applicatif ne reçoit aucun secret cln-iap. Le routeur doit couvrir le domaine de l’application et son callback `/__cln_iap/callback`. Pour une application sous un préfixe, ajouter le routeur de callback décrit dans le guide utilisateur.

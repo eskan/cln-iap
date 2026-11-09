@@ -1,4 +1,4 @@
-package main
+package cln_iap
 
 import (
 	"bytes"
@@ -68,9 +68,8 @@ func TestLogLevels(t *testing.T) {
 		})
 	}
 	for _, value := range []string{"trace", "INFO", " info", "sensitive-invalid-level"} {
-		t.Setenv("LOG_LEVEL", value)
-		_, err := loadConfig()
-		if err == nil || err.Error() != "LOG_LEVEL must be debug, info, warn or error" {
+		_, err := parseLogLevel(value)
+		if err == nil || err.Error() != "logLevel must be debug, info, warn or error" {
 			t.Fatalf("invalid level: %v", err)
 		}
 	}
@@ -180,7 +179,7 @@ func TestRequestDiagnosticLogs(t *testing.T) {
 		t.Fatal("cookie leaked")
 	}
 	b.Reset()
-	request(a, "/callback?state=sensitive-state&ticket=ST-sensitive-ticket")
+	request(a, "/__cln_iap/callback?state=sensitive-state&ticket=ST-sensitive-ticket")
 	records = logRecords(t, &b)
 	if len(records) != 1 || records[0]["level"] != "WARN" || strings.Contains(b.String(), "sensitive-") {
 		t.Fatal(records)
@@ -188,7 +187,7 @@ func TestRequestDiagnosticLogs(t *testing.T) {
 	b.Reset()
 	f := flow{"https://app1.example.org/", b64.EncodeToString(make([]byte, 32)), time.Now().Add(-time.Minute).Unix()}
 	cookie := &http.Cookie{Name: flowCookie, Value: sign(a.flowKey, "", f)}
-	request(a, "/callback?state="+f.State+"&ticket=ST-sensitive-ticket", cookie)
+	request(a, "/__cln_iap/callback?state="+f.State+"&ticket=ST-sensitive-ticket", cookie)
 	records = logRecords(t, &b)
 	if len(records) != 1 || records[0]["level"] != "WARN" {
 		t.Fatal(records)
@@ -196,14 +195,8 @@ func TestRequestDiagnosticLogs(t *testing.T) {
 	b.Reset()
 	a.logger = newLogger(&b, slog.LevelInfo)
 	a.ServeHTTP(httptest.NewRecorder(), r)
-	request(a, "/login?return=sensitive-invalid-return")
+	request(a, "/__cln_iap/unknown")
 	if b.Len() != 0 {
 		t.Fatal("debug logs emitted at info")
-	}
-	writer := serverLogWriter{a.logger}
-	writer.Write([]byte("panic containing sensitive-cookie"))
-	records = logRecords(t, &b)
-	if len(records) != 1 || records[0]["level"] != "ERROR" || strings.Contains(b.String(), "sensitive-") {
-		t.Fatal(records)
 	}
 }

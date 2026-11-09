@@ -1,8 +1,0 @@
-.git
-.github
-secrets
-docs
-deploy
-README.md
-compose.yaml
-*_test.go

@@ -1,32 +1,24 @@
-# Installer avec Docker Compose
+# Docker Compose
 
-[← README](../README.md) · [Variables](configuration.md)
+[Guide utilisateur](../README.md)
 
-Prérequis : Traefik avec le fournisseur Docker, un réseau partagé `proxy` et HTTPS configuré.
-
-1. Récupérer [compose.yaml](../compose.yaml). Adapter les domaines, les variables, le réseau `proxy` et l’entrypoint `websecure`.
-2. Dans le même répertoire, créer le secret une seule fois :
-
-```sh
-mkdir -m 700 secrets
-openssl rand -out secrets/jwt_secret 32
-chmod 444 secrets/jwt_secret
-```
-
-Le répertoire privé protège le fichier ; les droits permettent au conteneur de le lire. Ne pas le versionner.
-
-3. Télécharger l’image et démarrer cln-iap :
-
-```sh
-docker compose pull
-docker compose up -d
-docker compose logs --tail=50 cln-iap
-```
-
-Le fichier déclare déjà les routes de connexion et le middleware `cas`. Dans les labels du service concerné, ajouter ce label en remplaçant `mon-routeur` par son nom Traefik :
+Sur le service Traefik existant, ajouter ces volumes en adaptant les chemins sources :
 
 ```yaml
-- "traefik.http.routers.mon-routeur.middlewares=cas@docker"
+volumes:
+  - ./cln-iap:/plugins-local/src/github.com/eskan/cln-iap:ro
+  - ./cln-iap.json:/etc/traefik/cln-iap.json:ro
+  - ./cln_iap_jwt:/run/secrets/cln_iap_jwt:ro
 ```
 
-Conserver les middlewares existants après `cas@docker`, puis relancer `docker compose up -d` pour ce service. Ouvrir le site pour vérifier la connexion CAS.
+Ajouter l’option statique `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` aux options existantes, puis redémarrer Traefik. Conserver ses fournisseurs, réseaux, entrypoints et certificats HTTPS.
+
+Sur le service de l’application :
+
+```yaml
+labels:
+  - "traefik.http.middlewares.mon-app-iap.plugin.cln-iap.allowedLogins=alice,bob"
+  - "traefik.http.routers.mon-app.middlewares=mon-app-iap"
+```
+
+Le routeur `mon-app` doit exister et couvrir le callback sur le domaine de l’application. Utiliser un nom de middleware distinct par politique d’accès. Voir également [compose.yaml](../compose.yaml), un fragment à intégrer à vos services existants.

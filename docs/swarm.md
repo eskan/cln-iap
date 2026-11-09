@@ -1,24 +1,24 @@
-# Installer avec Docker Swarm
+# Docker Swarm
 
-[← README](../README.md) · [Variables](configuration.md)
+[Guide utilisateur](../README.md)
 
-Prérequis : Traefik avec le fournisseur Swarm, un réseau overlay partagé `proxy` et HTTPS configuré.
+Activer le plugin sur chaque réplica Traefik. Monter ses fichiers à `/plugins-local/src/github.com/eskan/cln-iap` et le fichier administrateur à `/etc/traefik/cln-iap.json`. Les fichiers doivent être disponibles sur chaque nœud pouvant accueillir Traefik.
 
-1. Récupérer [swarm.yaml](../deploy/swarm.yaml). Adapter les domaines, les variables, le réseau et l’entrypoint `websecure`. L’adresse `iap_cln-iap` correspond à la stack `iap` utilisée ci-dessous.
-2. Sur un manager, créer le secret une seule fois, puis déployer :
+Créer un secret Swarm depuis le fichier administrateur de secret :
 
 ```sh
-openssl rand 32 | docker secret create cln_iap_jwt -
-docker stack deploy --with-registry-auth -c swarm.yaml iap
-docker service logs --tail=50 iap_cln-iap
+docker secret create cln_iap_jwt ./cln_iap_jwt
 ```
 
-Swarm télécharge `ghcr.io/eskan/cln-iap:latest`. La stack déclare les routes de connexion et le middleware `cas`.
+Attacher ce secret au service Traefik, à `/run/secrets/cln_iap_jwt`, et renseigner ce chemin dans `jwtSecretFile`. Les services applicatifs ne reçoivent pas ce secret.
 
-3. Dans les `deploy.labels` du service concerné, ajouter ce label en remplaçant `mon-routeur` par son nom Traefik :
+Sur le service applicatif existant, placer les labels dans `deploy.labels` :
 
 ```yaml
-- "traefik.http.routers.mon-routeur.middlewares=cas@swarm"
+deploy:
+  labels:
+    - "traefik.http.middlewares.mon-app-iap.plugin.cln-iap.allowedLogins=alice,bob"
+    - "traefik.http.routers.mon-app.middlewares=mon-app-iap"
 ```
 
-Conserver les middlewares existants après `cas@swarm`, puis redéployer la stack de ce service. Ouvrir le site pour vérifier la connexion CAS.
+Conserver les labels de routage et de port existants. Le fournisseur Swarm et HTTPS doivent être activés dans Traefik. Adapter le [fragment de stack](../deploy/swarm.yaml) ; ajouter l’option statique du plugin sans remplacer les options Traefik existantes.

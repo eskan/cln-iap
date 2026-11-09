@@ -1,33 +1,10 @@
 services:
-  cln-iap:
-    image: ghcr.io/eskan/cln-iap:latest
-    restart: unless-stopped
-    environment:
-      CAS_URL: https://cas.example.org/cas
-      IAP_URL: https://iap.example.org
-      COOKIE_DOMAIN: example.org
-      ALLOWED_HOSTS: site.example.org
-      JWT_SECRET_FILE: /run/secrets/jwt_secret
-    secrets:
-      - jwt_secret
-    networks:
-      - proxy
+  traefik:
+    volumes:
+      - ./cln-iap:/plugins-local/src/github.com/eskan/cln-iap:ro
+      - ./cln-iap.json:/etc/traefik/cln-iap.json:ro
+      - ./cln_iap_jwt:/run/secrets/cln_iap_jwt:ro
+  mon-app:
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
-      - "traefik.http.routers.cln-iap.rule=Host(`iap.example.org`) && (Path(`/login`) || Path(`/callback`))"
-      - "traefik.http.routers.cln-iap.entrypoints=websecure"
-      - "traefik.http.routers.cln-iap.tls=true"
-      - "traefik.http.routers.cln-iap.service=cln-iap"
-      - "traefik.http.services.cln-iap.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.cas.forwardauth.address=http://cln-iap:8080/verify"
-      - "traefik.http.middlewares.cas.forwardauth.trustForwardHeader=false"
-      - "traefik.http.middlewares.cas.forwardauth.authRequestHeaders=Cookie"
-
-secrets:
-  jwt_secret:
-    file: ./secrets/jwt_secret
-
-networks:
-  proxy:
-    external: true
+      - "traefik.http.middlewares.mon-app-iap.plugin.cln-iap.allowedLogins=alice,bob"
+      - "traefik.http.routers.mon-app.middlewares=mon-app-iap"

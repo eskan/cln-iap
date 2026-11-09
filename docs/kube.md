@@ -1,25 +1,35 @@
-# Installer avec Kubernetes
+# Kubernetes
 
-[← README](../README.md) · [Variables](configuration.md)
+[Guide utilisateur](../README.md)
 
-Prérequis : Traefik avec le fournisseur Kubernetes CRD, les ressources `Middleware` / `IngressRoute` et HTTPS configurés.
+Configurer le déploiement Traefik avec :
 
-1. Récupérer [kube.yaml](../deploy/kube.yaml). Adapter les domaines, les variables et l’entrypoint `websecure`. L’exemple utilise le namespace `default`, commun à cln-iap et à votre route existante ; si vous le changez, adapter aussi l’adresse du middleware.
-2. Créer le secret une seule fois et installer cln-iap :
+- Le plugin monté en lecture seule dans `/plugins-local/src/github.com/eskan/cln-iap`.
+- L’argument `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap`.
+- Un ConfigMap contenant `cln-iap.json`, monté à `/etc/traefik/cln-iap.json`.
+- Un Secret contenant la clé de session, monté à `/run/secrets/cln_iap_jwt`.
+
+Créer le ConfigMap et le Secret dans le namespace de Traefik, à partir des fichiers préparés par l’administrateur :
 
 ```sh
-openssl rand 32 | kubectl -n default create secret generic cln-iap-jwt --from-file=jwt_secret=/dev/stdin
-kubectl -n default apply -f kube.yaml
-kubectl -n default rollout status deployment/cln-iap
+kubectl -n traefik create configmap cln-iap-config --from-file=cln-iap.json
+kubectl -n traefik create secret generic cln-iap-jwt --from-file=cln_iap_jwt
 ```
 
-Le manifest crée le Deployment utilisant `ghcr.io/eskan/cln-iap:latest`, le Service interne, les routes de connexion et le middleware `cas`.
+Réserver l’accès au Secret au déploiement Traefik. Le fichier administrateur utilise `jwtSecretFile: /run/secrets/cln_iap_jwt` (propriété JSON dans ce fichier).
 
-3. Dans la route concernée de votre `IngressRoute` (`spec.routes[]`), ajouter :
+Dans le namespace de l’application, appliquer le [middleware](../deploy/kube.yaml), puis le référencer dans l’IngressRoute HTTPS :
 
 ```yaml
-middlewares:
-  - name: cas
+spec:
+  routes:
+    - match: Host(`app.example.org`)
+      kind: Rule
+      middlewares:
+        - name: mon-app-iap
+      services:
+        - name: mon-app
+          port: 80
 ```
 
-Conserver les middlewares existants après `cas`, puis appliquer votre `IngressRoute`. Ouvrir le site pour vérifier la connexion CAS. Pour plusieurs namespaces, créer le middleware dans chacun, en gardant l’adresse du Service cln-iap.
+Conserver les entrypoints et la configuration TLS de l’IngressRoute. Placer ce middleware avant ceux qui modifient les chemins. Le routeur doit aussi couvrir `/__cln_iap/callback`.

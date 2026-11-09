@@ -1,26 +1,18 @@
-# Ajouter le middleware par fichier YAML
+# Configuration par fichier Traefik
 
-[← README](../README.md) · [Variables et routes de connexion](configuration.md)
+[Guide utilisateur](../README.md)
 
-Un middleware est une étape exécutée par Traefik avant de transmettre la requête. Ici, il appelle `/verify` sur cln-iap pour vérifier la connexion de l’utilisateur.
-
-Ajouter ce bloc dans un fichier de configuration dynamique déjà chargé par Traefik (fournisseur `file`) :
+Activer le plugin dans la configuration statique et monter les fichiers administrateur décrits dans le guide. Dans un fichier dynamique déjà chargé par Traefik :
 
 ```yaml
 http:
   middlewares:
-    cas:
-      forwardAuth:
-        address: http://cln-iap:8080/verify
-        trustForwardHeader: false
-        authRequestHeaders: [Cookie]
+    mon-app-iap:
+      plugin:
+        cln-iap:
+          allowedLogins: "alice,bob"
 ```
 
-Dans le routeur existant, ajouter `cas@file` à la liste `middlewares`, avant les éventuelles réécritures de chemin :
+Sur le routeur HTTPS de l’application, ajouter `mon-app-iap@file` en premier dans `middlewares`, avant les réécritures de chemin. Ne pas supprimer les autres middlewares.
 
-```yaml
-middlewares:
-  - cas@file
-```
-
-Adapter `cln-iap:8080` à l’adresse interne du service. Garder l’appel ForwardAuth en GET et ne pas appliquer ce middleware aux routes `/login` et `/callback`.
+Le routeur doit couvrir `/__cln_iap/callback`. Consulter le guide pour les applications exposées sous un préfixe.

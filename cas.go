@@ -1,4 +1,4 @@
-package main
+package cln_iap
 
 import (
 	"context"
@@ -14,8 +14,6 @@ import (
 
 const casNamespace = "http://www.yale.edu/tp/cas"
 
-// Unknown elements at the response or success level are rejected; CAS user
-// attributes are accepted but ignored. Namespace prefixes themselves are arbitrary.
 type casResponse struct {
 	XMLName xml.Name `xml:"http://www.yale.edu/tp/cas serviceResponse"`
 	Success []struct {
@@ -34,7 +32,6 @@ type casResponse struct {
 	Text    string     `xml:",chardata"`
 }
 
-// Only bounded, application-owned categories may reach logs, never upstream errors.
 type casError struct {
 	reason string
 	status int
@@ -85,7 +82,6 @@ func (a *app) validateTicket(ctx context.Context, ticket, service string) (strin
 	if decoder.Decode(&response) != nil {
 		return "", &casError{reason: "invalid_response"}
 	}
-	// Decode alone would accept a second XML document after the first one.
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {

@@ -1,0 +1,6 @@
+displayName: cln-iap
+type: middleware
+import: github.com/eskan/cln-iap
+summary: Authentification CAS et contrôle des logins pour les applications Web.
+testData:
+  allowedLogins: ""
