@@ -66,7 +66,6 @@ func httpsURL(s string) (*url.URL, error) {
 	return u, nil
 }
 
-const configPath = "/etc/traefik/cln-iap.json"
 const callbackPath = "/__cln_iap/callback"
 
 type Config struct {
@@ -74,26 +73,22 @@ type Config struct {
 }
 
 type adminConfig struct {
-	CASURL        string   `json:"casUrl"`
-	CookieDomain  string   `json:"cookieDomain"`
-	AllowedHosts  []string `json:"allowedHosts"`
-	JWTSecret     string   `json:"jwtSecret"`
-	JWTSecretFile string   `json:"jwtSecretFile"`
-	JWTTTL        string   `json:"jwtTtl"`
-	LogLevel      string   `json:"logLevel"`
+	CASURL        string
+	CookieDomain  string
+	AllowedHosts  []string
+	JWTSecret     string
+	JWTSecretFile string
+	JWTTTL        string
+	LogLevel      string
 }
 
 func CreateConfig() *Config { return &Config{} }
 
 func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http.Handler, error) {
-	return newMiddleware(next, cfg, configPath)
-}
-
-func newMiddleware(next http.Handler, cfg *Config, path string) (http.Handler, error) {
 	if cfg == nil || next == nil {
 		return nil, errors.New("missing middleware configuration or handler")
 	}
-	c, err := loadConfig(path, cfg)
+	c, err := loadConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -102,28 +97,16 @@ func newMiddleware(next http.Handler, cfg *Config, path string) (http.Handler, e
 	return a, nil
 }
 
-func loadConfig(path string, local *Config) (config, error) {
-	c := config{hosts: map[string]bool{}, logins: map[string]bool{}, ttl: 4 * time.Hour}
-	f, err := os.Open(path)
-	if err != nil {
-		return c, errors.New("cannot open administrator configuration")
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(data) > 65536 {
-		return c, errors.New("invalid administrator configuration")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var global adminConfig
-	if decoder.Decode(&global) != nil {
-		return c, errors.New("invalid administrator configuration")
-	}
-	var trailing interface{}
-	if decoder.Decode(&trailing) != io.EOF {
-		return c, errors.New("invalid administrator configuration")
-	}
-	return configure(global, local)
+func loadConfig(local *Config) (config, error) {
+	return configure(adminConfig{
+		CASURL:        os.Getenv("CLN_IAP_CAS_URL"),
+		CookieDomain:  os.Getenv("CLN_IAP_COOKIE_DOMAIN"),
+		AllowedHosts:  strings.Split(os.Getenv("CLN_IAP_ALLOWED_HOSTS"), ","),
+		JWTSecret:     os.Getenv("CLN_IAP_JWT_SECRET"),
+		JWTSecretFile: os.Getenv("CLN_IAP_JWT_SECRET_FILE"),
+		JWTTTL:        os.Getenv("CLN_IAP_JWT_TTL"),
+		LogLevel:      os.Getenv("CLN_IAP_LOG_LEVEL"),
+	}, local)
 }
 
 func configure(global adminConfig, local *Config) (config, error) {
@@ -138,21 +121,21 @@ func configure(global adminConfig, local *Config) (config, error) {
 	c.logLevel = level
 	cas, err := httpsURL(c.cas)
 	if err != nil || strings.Contains(cas.Path, "//") {
-		return c, errors.New("invalid casUrl")
+		return c, errors.New("invalid CLN_IAP_CAS_URL")
 	}
 	c.cas = strings.TrimRight(c.cas, "/")
 	if !dnsName(c.domain) {
-		return c, errors.New("invalid cookieDomain")
+		return c, errors.New("invalid CLN_IAP_COOKIE_DOMAIN")
 	}
 	within := func(host string) bool { return host == c.domain || strings.HasSuffix(host, "."+c.domain) }
 	if len(global.AllowedHosts) == 0 {
-		return c, errors.New("allowedHosts must not be empty")
+		return c, errors.New("CLN_IAP_ALLOWED_HOSTS must not be empty")
 	}
 	for _, host := range global.AllowedHosts {
 		host = strings.TrimSpace(host)
 		base := strings.TrimPrefix(host, "*.")
 		if !dnsName(base) || !within(base) {
-			return c, errors.New("invalid allowedHosts")
+			return c, errors.New("invalid CLN_IAP_ALLOWED_HOSTS")
 		}
 		c.hosts[host] = true
 	}
@@ -168,17 +151,17 @@ func configure(global adminConfig, local *Config) (config, error) {
 	if global.JWTTTL != "" {
 		c.ttl, err = time.ParseDuration(global.JWTTTL)
 		if err != nil || c.ttl < time.Second || c.ttl%time.Second != 0 {
-			return c, errors.New("jwtTtl must be positive whole seconds")
+			return c, errors.New("CLN_IAP_JWT_TTL must be positive whole seconds")
 		}
 	}
 	if (global.JWTSecret == "") == (global.JWTSecretFile == "") {
-		return c, errors.New("set exactly one of jwtSecret and jwtSecretFile")
+		return c, errors.New("set exactly one of CLN_IAP_JWT_SECRET and CLN_IAP_JWT_SECRET_FILE")
 	}
 	c.secret = []byte(global.JWTSecret)
 	if global.JWTSecretFile != "" {
 		c.secret, err = os.ReadFile(global.JWTSecretFile)
 		if err != nil {
-			return c, errors.New("cannot read jwtSecretFile")
+			return c, errors.New("cannot read CLN_IAP_JWT_SECRET_FILE")
 		}
 	}
 	if len(c.secret) < 32 {
@@ -198,7 +181,7 @@ func parseLogLevel(value string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return slog.LevelInfo, errors.New("logLevel must be debug, info, warn or error")
+		return slog.LevelInfo, errors.New("CLN_IAP_LOG_LEVEL must be debug, info, warn or error")
 	}
 }
 

@@ -5,10 +5,30 @@
 Dans la tâche Traefik existante, activer le plugin avec `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` et monter :
 
 - Le répertoire du plugin dans `/plugins-local/src/github.com/eskan/cln-iap`.
-- La configuration administrateur dans `/etc/traefik/cln-iap.json`.
-- Le secret dans `/run/secrets/cln_iap_jwt`.
+- Le secret dans `/secrets/cln_iap_jwt`.
 
-Distribuer la configuration et le secret uniquement à la tâche Traefik, avec les permissions Nomad/Vault de l’administrateur. `jwtSecretFile` référence le chemin du secret à l’intérieur de Traefik. Conserver les options du fournisseur Nomad et les paramètres HTTPS.
+Définir les paramètres communs dans le bloc `env` de la tâche Traefik :
+
+```hcl
+env {
+  CLN_IAP_CAS_URL         = "https://cas.example.org/cas"
+  CLN_IAP_COOKIE_DOMAIN   = "example.org"
+  CLN_IAP_ALLOWED_HOSTS   = "app.example.org,outils.example.org"
+  CLN_IAP_JWT_SECRET_FILE = "/secrets/cln_iap_jwt"
+  CLN_IAP_JWT_TTL         = "4h"
+  CLN_IAP_LOG_LEVEL       = "info"
+}
+
+template {
+  destination          = "secrets/cln_iap_jwt"
+  perms                = "0400"
+  change_mode          = "restart"
+  error_on_missing_key = true
+  data                 = "{{ with nomadVar \"nomad/jobs/traefik\" }}{{ .jwt_secret }}{{ end }}"
+}
+```
+
+Le template fournit le secret à `/secrets/cln_iap_jwt` dans le conteneur Traefik. Réserver l’accès à la variable Nomad à la tâche Traefik. Redéployer Traefik après modification de son environnement ; un changement du secret redémarre la tâche. Conserver le fournisseur et les paramètres HTTPS existants. Aucun secret n’est fourni aux applications.
 
 Dans le bloc `service` de l’application, enregistré avec `provider = "nomad"`, ajouter aux tags existants :
 

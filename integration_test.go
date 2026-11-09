@@ -119,13 +119,6 @@ func startTraefik(t testing.TB) *integration {
 	backend.Start()
 	t.Cleanup(backend.Close)
 	_, port, _ := net.SplitHostPort(backend.Listener.Addr().String())
-	global := testGlobal()
-	global.CASURL = "https://cas.example.net"
-	global.JWTSecret = ""
-	global.JWTSecretFile = "/etc/traefik/secret"
-	global.LogLevel = "debug"
-	data, _ := json.Marshal(global)
-	write("cln-iap.json", data)
 	write("secret", []byte(strings.Repeat("s", 32)))
 	router := func(rule, middleware string) map[string]interface{} {
 		r := map[string]interface{}{"rule": rule, "service": "app", "tls": map[string]interface{}{}}
@@ -151,13 +144,13 @@ func startTraefik(t testing.TB) *integration {
 			"middlewares": map[string]interface{}{"open": middleware(""), "allowed": middleware("alice,bob"), "restricted": middleware("bob")},
 			"services":    map[string]interface{}{"app": map[string]interface{}{"loadBalancer": map[string]interface{}{"servers": []interface{}{map[string]string{"url": "http://host.docker.internal:" + port}}}}},
 		}}
-	data, _ = json.Marshal(dynamic)
+	data, _ := json.Marshal(dynamic)
 	write("dynamic.yml", data)
 	root, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.container = f.docker("run", "-d", "--rm", "--add-host", "host.docker.internal:host-gateway", "--add-host", "cas.example.net:127.0.0.1", "-p", "127.0.0.1::443", "-v", dir+":/etc/traefik:ro", "-v", root+":/plugins-local/src/github.com/eskan/cln-iap:ro", "-e", "SSL_CERT_FILE=/etc/traefik/cert.pem", "traefik:v3.7.17", "--entrypoints.websecure.address=:443", "--providers.file.filename=/etc/traefik/dynamic.yml", "--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap")
+	f.container = f.docker("run", "-d", "--rm", "--add-host", "host.docker.internal:host-gateway", "--add-host", "cas.example.net:127.0.0.1", "-p", "127.0.0.1::443", "-v", dir+":/etc/traefik:ro", "-v", root+":/plugins-local/src/github.com/eskan/cln-iap:ro", "-e", "SSL_CERT_FILE=/etc/traefik/cert.pem", "-e", "CLN_IAP_CAS_URL=https://cas.example.net", "-e", "CLN_IAP_COOKIE_DOMAIN=example.org", "-e", "CLN_IAP_ALLOWED_HOSTS=app1.example.org,app2.example.org", "-e", "CLN_IAP_JWT_SECRET_FILE=/etc/traefik/secret", "-e", "CLN_IAP_LOG_LEVEL=debug", "traefik:v3.7.17", "--entrypoints.websecure.address=:443", "--providers.file.filename=/etc/traefik/dynamic.yml", "--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap")
 	t.Cleanup(func() {
 		if t.Failed() {
 			out, _ := exec.Command("docker", "logs", f.container).CombinedOutput()

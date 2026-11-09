@@ -2,7 +2,7 @@
 
 [Guide utilisateur](../README.md)
 
-Activer le plugin dans la configuration statique et monter les fichiers administrateur décrits dans le guide. Dans un fichier dynamique déjà chargé par Traefik :
+Activer le plugin dans la configuration statique et définir les variables d’environnement communes et monter le secret décrits dans le guide. Dans un fichier dynamique déjà chargé par Traefik :
 
 ```yaml
 http:
@@ -12,6 +12,8 @@ http:
         cln-iap:
           allowedLogins: "alice,bob"
 ```
+
+Après modification des variables ou du secret, redémarrer Traefik.
 
 Sur le routeur HTTPS de l’application, ajouter `mon-app-iap@file` en premier dans `middlewares`, avant les réécritures de chemin. Ne pas supprimer les autres middlewares.
 

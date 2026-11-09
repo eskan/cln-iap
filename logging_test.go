@@ -69,7 +69,7 @@ func TestLogLevels(t *testing.T) {
 	}
 	for _, value := range []string{"trace", "INFO", " info", "sensitive-invalid-level"} {
 		_, err := parseLogLevel(value)
-		if err == nil || err.Error() != "logLevel must be debug, info, warn or error" {
+		if err == nil || err.Error() != "CLN_IAP_LOG_LEVEL must be debug, info, warn or error" {
 			t.Fatalf("invalid level: %v", err)
 		}
 	}

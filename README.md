@@ -34,30 +34,30 @@ Redémarrer Traefik après l’installation ou la mise à jour du plugin. Ce mod
 
 ### Définir les paramètres communs
 
-Monter ce fichier en lecture seule à **`/etc/traefik/cln-iap.json`** dans Traefik :
+Définir ces variables d’environnement sur le processus Traefik :
 
-```json
-{
-  "casUrl": "https://cas.example.org/cas",
-  "cookieDomain": "example.org",
-  "allowedHosts": ["app.example.org", "outils.example.org"],
-  "jwtSecretFile": "/run/secrets/cln_iap_jwt",
-  "jwtTtl": "4h",
-  "logLevel": "info"
-}
+```text
+CLN_IAP_CAS_URL=https://cas.example.org/cas
+CLN_IAP_COOKIE_DOMAIN=example.org
+CLN_IAP_ALLOWED_HOSTS=app.example.org,outils.example.org
+CLN_IAP_JWT_SECRET_FILE=/run/secrets/cln_iap_jwt
+CLN_IAP_JWT_TTL=4h
+CLN_IAP_LOG_LEVEL=info
 ```
 
-| Paramètre global | Usage |
+| Variable | Usage |
 | --- | --- |
-| `casUrl` | URL HTTPS de CAS, sans query ni fragment. |
-| `cookieDomain` | Domaine commun aux sites, sans point initial. |
-| `allowedHosts` | Tableau non vide d’hôtes autorisés. `*.dev.example.org` accepte les sous-domaines, y compris imbriqués, mais pas `dev.example.org` lui-même. |
-| `jwtSecretFile` | Chemin absolu du fichier secret, accessible dans Traefik. |
-| `jwtSecret` | Alternative au fichier ; ne pas renseigner les deux. |
-| `jwtTtl` | Durée de session, `4h` par défaut ; durée positive en secondes entières. |
-| `logLevel` | `debug`, `info`, `warn` ou `error` ; `info` par défaut. |
+| `CLN_IAP_CAS_URL` | URL HTTPS de CAS, sans query ni fragment ; obligatoire. |
+| `CLN_IAP_COOKIE_DOMAIN` | Domaine commun aux sites, sans point initial ; obligatoire. |
+| `CLN_IAP_ALLOWED_HOSTS` | Liste non vide d’hôtes séparés par des virgules ; obligatoire. Les espaces autour des éléments sont ignorés, les éléments vides sont refusés. `*.dev.example.org` accepte les sous-domaines, y compris imbriqués, mais pas `dev.example.org` lui-même. |
+| `CLN_IAP_JWT_SECRET_FILE` | Chemin du fichier secret accessible dans Traefik ; option recommandée. |
+| `CLN_IAP_JWT_SECRET` | Alternative au fichier ; définir exactement une des deux sources de secret. Sa valeur est accessible aux outils autorisés à inspecter l’environnement du processus. |
+| `CLN_IAP_JWT_TTL` | Durée de session, `4h` par défaut ; durée positive en secondes entières. |
+| `CLN_IAP_LOG_LEVEL` | `debug`, `info`, `warn` ou `error` ; `info` par défaut. |
 
-Les noms d’hôtes doivent être en minuscules, sans port. Tous les hôtes autorisés doivent appartenir à `cookieDomain`. N’inclure dans ce domaine partagé que des sous-domaines de confiance.
+Aucun fichier JSON de configuration n’est utilisé. Les variables sont lues à la création des middlewares. Une variable absente ou vide utilise la valeur par défaut lorsqu’elle existe ; les autres paramètres sont obligatoires.
+
+Les noms d’hôtes doivent être en minuscules, sans port. Tous les hôtes autorisés doivent appartenir à `CLN_IAP_COOKIE_DOMAIN`. N’inclure dans ce domaine partagé que des sous-domaines de confiance.
 
 Créer le secret et le monter en lecture seule dans Traefik :
 
@@ -66,9 +66,9 @@ umask 077
 openssl rand -hex 32 > cln_iap_jwt
 ```
 
-Le secret doit contenir au moins 32 octets aléatoires. Son fichier est lu tel quel, y compris l’éventuel saut de ligne. Utiliser exactement le même fichier et les mêmes paramètres de session sur tous les réplicas Traefik partageant les cookies.
+Le secret doit contenir au moins 32 octets aléatoires. Son fichier est lu tel quel, y compris l’éventuel saut de ligne. Utiliser exactement les mêmes octets de secret et les mêmes paramètres de session sur tous les réplicas Traefik partageant les cookies.
 
-**Ces propriétés appartiennent exclusivement à l’administrateur.** Elles ne sont pas configurables par les labels des applications. Les déployeurs des applications n’ont besoin ni du secret ni d’une copie de la configuration commune. Le fichier ne contient pas de liste `allowedLogins`.
+**Ces propriétés appartiennent exclusivement à l’administrateur.** Elles ne sont pas configurables par les labels des applications. Les déployeurs des applications n’ont besoin ni du secret ni d’une copie de la configuration commune. `allowedLogins` reste propre au middleware de chaque application.
 
 Après modification de la configuration commune ou du secret, redémarrer les réplicas Traefik de façon coordonnée. Un changement de secret invalide les sessions existantes. Une configuration absente ou invalide empêche la création du middleware.
 
@@ -165,7 +165,7 @@ Si plusieurs applications partagent un même hôte, utiliser la même politique 
 
 Un parcours de connexion expire après cinq minutes. En cas d’expiration, rouvrir la page de l’application. Deux connexions simultanées sur le même hôte peuvent se remplacer : recommencer depuis la page souhaitée.
 
-Les cookies sont sécurisés, inaccessibles au JavaScript et envoyés uniquement en HTTPS. Une session valide continue à fonctionner pendant une indisponibilité de CAS, jusqu’à son expiration. Une déconnexion de CAS ne révoque pas immédiatement le cookie cln-iap ; sa durée est contrôlée par `jwtTtl`.
+Les cookies sont sécurisés, inaccessibles au JavaScript et envoyés uniquement en HTTPS. Une session valide continue à fonctionner pendant une indisponibilité de CAS, jusqu’à son expiration. Une déconnexion de CAS ne révoque pas immédiatement le cookie cln-iap ; sa durée est contrôlée par `CLN_IAP_JWT_TTL`.
 
 Les événements du plugin apparaissent dans les logs Traefik, sans login, ticket, cookie ou secret. Configurer séparément les journaux d’accès de Traefik pour éviter d’y enregistrer la query des callbacks ou les en-têtes Cookie.
 

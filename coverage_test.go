@@ -2,13 +2,10 @@ package cln_iap
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -33,18 +30,13 @@ func TestMiddlewareInitialization(t *testing.T) {
 			}
 		})
 	}
-	path := filepath.Join(t.TempDir(), "config.json")
-	if handler, err := newMiddleware(next, CreateConfig(), path); err == nil || handler != nil {
-		t.Fatalf("missing file: handler=%v error=%v", handler, err)
+	setAdministratorEnv(t)
+	t.Setenv("CLN_IAP_CAS_URL", "")
+	if handler, err := New(context.Background(), next, CreateConfig(), "test"); err == nil || handler != nil {
+		t.Fatalf("missing environment: handler=%v error=%v", handler, err)
 	}
-	data, err := json.Marshal(testGlobal())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	handler, err := newMiddleware(next, &Config{AllowedLogins: "alice"}, path)
+	t.Setenv("CLN_IAP_CAS_URL", "https://cas.example.net/cas")
+	handler, err := New(context.Background(), next, &Config{AllowedLogins: "alice"}, "test")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,8 +7,19 @@ Sur le service Traefik existant, ajouter ces volumes en adaptant les chemins sou
 ```yaml
 volumes:
   - ./cln-iap:/plugins-local/src/github.com/eskan/cln-iap:ro
-  - ./cln-iap.json:/etc/traefik/cln-iap.json:ro
   - ./cln_iap_jwt:/run/secrets/cln_iap_jwt:ro
+```
+
+Définir les variables communes sur le service Traefik :
+
+```yaml
+environment:
+  CLN_IAP_CAS_URL: "https://cas.example.org/cas"
+  CLN_IAP_COOKIE_DOMAIN: "example.org"
+  CLN_IAP_ALLOWED_HOSTS: "app.example.org,outils.example.org"
+  CLN_IAP_JWT_SECRET_FILE: "/run/secrets/cln_iap_jwt"
+  CLN_IAP_JWT_TTL: "4h"
+  CLN_IAP_LOG_LEVEL: "info"
 ```
 
 Ajouter l’option statique `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` aux options existantes, puis redémarrer Traefik. Conserver ses fournisseurs, réseaux, entrypoints et certificats HTTPS.

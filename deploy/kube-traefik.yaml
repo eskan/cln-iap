@@ -1,0 +1,30 @@
+spec:
+  template:
+    spec:
+      containers:
+        - name: traefik
+          env:
+            - name: CLN_IAP_CAS_URL
+              value: "https://cas.example.org/cas"
+            - name: CLN_IAP_COOKIE_DOMAIN
+              value: "example.org"
+            - name: CLN_IAP_ALLOWED_HOSTS
+              value: "app.example.org,outils.example.org"
+            - name: CLN_IAP_JWT_SECRET_FILE
+              value: "/run/secrets/cln_iap_jwt"
+            - name: CLN_IAP_JWT_TTL
+              value: "4h"
+            - name: CLN_IAP_LOG_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: cln-iap-jwt
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        - name: cln-iap-jwt
+          secret:
+            secretName: cln-iap-jwt
+            defaultMode: 0400
+            items:
+              - key: cln_iap_jwt
+                path: cln_iap_jwt

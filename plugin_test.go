@@ -256,13 +256,6 @@ func TestConfig(t *testing.T) {
 	if c, e := configure(g, CreateConfig()); e != nil || string(c.secret) != strings.Repeat("x", 32) {
 		t.Fatal("file secret", e)
 	}
-	file := filepath.Join(dir, "config.json")
-	for _, value := range []string{`{}`, `{"allowedLogins":"alice"}`, `{} {}`, `null`, `{"casUrl":42}`} {
-		os.WriteFile(file, []byte(value), 0600)
-		if _, e := loadConfig(file, CreateConfig()); e == nil {
-			t.Fatal("invalid global config accepted")
-		}
-	}
 	if _, e := New(context.Background(), nil, CreateConfig(), "test"); e == nil {
 		t.Fatal("nil next accepted")
 	}
@@ -402,24 +395,61 @@ func TestFlow(t *testing.T) {
 	}
 }
 
-func TestAdministratorFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "cln-iap.json")
-	valid := `{"casUrl":"https://cas.example.net/cas","cookieDomain":"example.org","allowedHosts":["app1.example.org"],"jwtSecret":"ssssssssssssssssssssssssssssssss"}`
-	if err := os.WriteFile(path, []byte(valid), 0600); err != nil {
-		t.Fatal(err)
+func setAdministratorEnv(t *testing.T) {
+	t.Helper()
+	for key, value := range map[string]string{
+		"CLN_IAP_CAS_URL":         "https://cas.example.net/cas",
+		"CLN_IAP_COOKIE_DOMAIN":   "example.org",
+		"CLN_IAP_ALLOWED_HOSTS":   " app1.example.org, *.tools.example.org ",
+		"CLN_IAP_JWT_SECRET":      strings.Repeat("s", 32),
+		"CLN_IAP_JWT_SECRET_FILE": "",
+		"CLN_IAP_JWT_TTL":         "",
+		"CLN_IAP_LOG_LEVEL":       "",
+	} {
+		t.Setenv(key, value)
 	}
-	c, err := loadConfig(path, &Config{AllowedLogins: "alice"})
-	if err != nil || !c.logins["alice"] || c.cas != "https://cas.example.net/cas" {
+}
+
+func TestAdministratorEnvironment(t *testing.T) {
+	setAdministratorEnv(t)
+	c, err := loadConfig(&Config{AllowedLogins: "alice"})
+	if err != nil || !c.logins["alice"] || !c.hosts["app1.example.org"] || !c.hosts["*.tools.example.org"] || c.ttl != 4*time.Hour || c.logLevel != slog.LevelInfo {
 		t.Fatal("global and local configuration", err)
 	}
-	for _, input := range []string{valid + ` {}`, strings.Replace(valid, `"casUrl"`, `"allowedLogins":"bob","casUrl"`, 1), valid + strings.Repeat(" ", 65536)} {
-		os.WriteFile(path, []byte(input), 0600)
-		if _, err := loadConfig(path, CreateConfig()); err == nil {
-			t.Fatal("invalid administrator file accepted")
-		}
+	for _, tc := range []struct{ key, value string }{
+		{"CLN_IAP_CAS_URL", ""},
+		{"CLN_IAP_COOKIE_DOMAIN", ""},
+		{"CLN_IAP_ALLOWED_HOSTS", ""},
+		{"CLN_IAP_ALLOWED_HOSTS", "app1.example.org,"},
+		{"CLN_IAP_ALLOWED_HOSTS", "app1.example.org,,app2.example.org"},
+		{"CLN_IAP_ALLOWED_HOSTS", "evil.org"},
+		{"CLN_IAP_JWT_TTL", "1.5s"},
+		{"CLN_IAP_LOG_LEVEL", "trace"},
+		{"CLN_IAP_JWT_SECRET", ""},
+		{"CLN_IAP_JWT_SECRET_FILE", "/missing"},
+	} {
+		t.Run(tc.key+tc.value, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			if _, err := loadConfig(CreateConfig()); err == nil {
+				t.Fatal("invalid environment accepted")
+			}
+		})
 	}
-	if _, err := loadConfig(path+".missing", CreateConfig()); err == nil {
-		t.Fatal("missing administrator file accepted")
+	secret := strings.Repeat("s", 32) + "\n"
+	t.Setenv("CLN_IAP_JWT_SECRET", secret)
+	c, err = loadConfig(CreateConfig())
+	if err != nil || string(c.secret) != secret {
+		t.Fatal("environment secret changed", err)
+	}
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte(secret), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLN_IAP_JWT_SECRET", "")
+	t.Setenv("CLN_IAP_JWT_SECRET_FILE", path)
+	c, err = loadConfig(CreateConfig())
+	if err != nil || string(c.secret) != secret {
+		t.Fatal("file secret changed", err)
 	}
 }
 

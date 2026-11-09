@@ -1,10 +1,14 @@
 services:
   traefik:
+    environment:
+      CLN_IAP_CAS_URL: "https://cas.example.org/cas"
+      CLN_IAP_COOKIE_DOMAIN: "example.org"
+      CLN_IAP_ALLOWED_HOSTS: "app.example.org,outils.example.org"
+      CLN_IAP_JWT_SECRET_FILE: "/run/secrets/cln_iap_jwt"
+      CLN_IAP_JWT_TTL: "4h"
+      CLN_IAP_LOG_LEVEL: "info"
     volumes:
       - /opt/cln-iap:/plugins-local/src/github.com/eskan/cln-iap:ro
-    configs:
-      - source: cln_iap_config
-        target: /etc/traefik/cln-iap.json
     secrets:
       - cln_iap_jwt
   mon-app:
@@ -12,9 +16,6 @@ services:
       labels:
         - "traefik.http.middlewares.mon-app-iap.plugin.cln-iap.allowedLogins=alice,bob"
         - "traefik.http.routers.mon-app.middlewares=mon-app-iap"
-configs:
-  cln_iap_config:
-    file: ./cln-iap.json
 secrets:
   cln_iap_jwt:
     external: true
