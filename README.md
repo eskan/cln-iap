@@ -1,8 +1,12 @@
 # cln-iap
 
-**cln-iap** protège les applications Web avec une authentification CAS et une liste facultative de logins autorisés. Il s’utilise comme middleware dans Traefik 3, sans domaine d’authentification dédié.
+<p align="center">
+  <img src="docs/assets/cln-iap.png" alt="Un visiteur présente sa carte d’identité devant une barrière fermée ; un agent lui fait signe de patienter avant d’accéder à l’entrée." width="200">
+</p>
+Compte tenu du climat actuel autour des failles de sécurité, il paraît essentiel de restreindre la surface d’attaque de nos applications. L’une des pistes envisagées est un Identity Aware Proxy : il vise à garantir l’authentification de l’utilisateur avant tout accès. On peut le voir comme un VPN applicatif. Il ne remplace pas l’authentification propre à l’application, mais son fonctionnement reste transparent pour l’utilisateur.  
+Celui-ci se connecte sur CAS, puis accède à la page demandée. Sa session est partagée entre les sites autorisés du même domaine. Chaque application peut restreindre l’accès à ses propres utilisateurs. cln-iap ne se substitue pas aux contrôles d’accès de l’application et ne lui transmet pas l’identité de l’utilisateur.
 
-L’utilisateur se connecte sur CAS, puis retrouve la page demandée. Sa session est partagée entre les sites autorisés du même domaine. Chaque application peut limiter l’accès à ses propres utilisateurs. cln-iap ne remplace pas les contrôles d’accès de l’application et ne lui transmet pas l’identité de l’utilisateur.
+**cln-iap** s’utilise comme middleware dans **Traefik 3**.
 
 ## Prérequis
 
@@ -45,19 +49,15 @@ CLN_IAP_JWT_TTL=4h
 CLN_IAP_LOG_LEVEL=info
 ```
 
-| Variable | Usage |
-| --- | --- |
-| `CLN_IAP_CAS_URL` | URL HTTPS de CAS, sans query ni fragment ; obligatoire. |
-| `CLN_IAP_COOKIE_DOMAIN` | Domaine commun aux sites, sans point initial ; obligatoire. |
-| `CLN_IAP_ALLOWED_HOSTS` | Liste non vide d’hôtes séparés par des virgules ; obligatoire. Les espaces autour des éléments sont ignorés, les éléments vides sont refusés. `*.dev.example.org` accepte les sous-domaines, y compris imbriqués, mais pas `dev.example.org` lui-même. |
-| `CLN_IAP_JWT_SECRET_FILE` | Chemin du fichier secret accessible dans Traefik ; option recommandée. |
-| `CLN_IAP_JWT_SECRET` | Alternative au fichier ; définir exactement une des deux sources de secret. Sa valeur est accessible aux outils autorisés à inspecter l’environnement du processus. |
-| `CLN_IAP_JWT_TTL` | Durée de session, `4h` par défaut ; durée positive en secondes entières. |
-| `CLN_IAP_LOG_LEVEL` | `debug`, `info`, `warn` ou `error` ; `info` par défaut. |
-
-Aucun fichier JSON de configuration n’est utilisé. Les variables sont lues à la création des middlewares. Une variable absente ou vide utilise la valeur par défaut lorsqu’elle existe ; les autres paramètres sont obligatoires.
-
-Les noms d’hôtes doivent être en minuscules, sans port. Tous les hôtes autorisés doivent appartenir à `CLN_IAP_COOKIE_DOMAIN`. N’inclure dans ce domaine partagé que des sous-domaines de confiance.
+| Variable                  | Usage                                                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CLN_IAP_CAS_URL`         | URL HTTPS de CAS, sans query ni fragment ; obligatoire.                                                                                                                                                                                                |
+| `CLN_IAP_COOKIE_DOMAIN`   | Domaine commun aux sites, sans point initial ; obligatoire.                                                                                                                                                                                            |
+| `CLN_IAP_ALLOWED_HOSTS`   | Liste non vide d’hôtes séparés par des virgules ; obligatoire. Les espaces autour des éléments sont ignorés, les éléments vides sont refusés. `*.dev.example.org` accepte les sous-domaines, y compris imbriqués, mais pas `dev.example.org` lui-même. |
+| `CLN_IAP_JWT_SECRET_FILE` | Chemin du fichier secret accessible dans Traefik ; option recommandée.                                                                                                                                                                                 |
+| `CLN_IAP_JWT_SECRET`      | Alternative au fichier ; définir exactement une des deux sources de secret. Sa valeur est accessible aux outils autorisés à inspecter l’environnement du processus.                                                                                    |
+| `CLN_IAP_JWT_TTL`         | Durée de session, `4h` par défaut ; durée positive en secondes entières.                                                                                                                                                                               |
+| `CLN_IAP_LOG_LEVEL`       | `debug`, `info`, `warn` ou `error` ; `info` par défaut.                                                                                                                                                                                                |
 
 Créer le secret et le monter en lecture seule dans Traefik :
 
@@ -66,7 +66,7 @@ umask 077
 openssl rand -hex 32 > cln_iap_jwt
 ```
 
-Le secret doit contenir au moins 32 octets aléatoires. Son fichier est lu tel quel, y compris l’éventuel saut de ligne. Utiliser exactement les mêmes octets de secret et les mêmes paramètres de session sur tous les réplicas Traefik partageant les cookies.
+Le secret doit contenir au moins 32 octets aléatoires. Ce secret peut être révoqué, toutes les sessions seront alors rejouées.
 
 **Ces propriétés appartiennent exclusivement à l’administrateur.** Elles ne sont pas configurables par les labels des applications. Les déployeurs des applications n’ont besoin ni du secret ni d’une copie de la configuration commune. `allowedLogins` reste propre au middleware de chaque application.
 
@@ -115,61 +115,6 @@ http:
 ```
 
 Attacher ensuite `mon-app-iap@file` au routeur de l’application.
-
-### Choisir les utilisateurs autorisés
-
-`allowedLogins` est le seul paramètre propre au middleware du service.
-
-- `"alice,bob"` autorise uniquement ces deux identifiants CAS.
-- `" alice, bob "` a le même effet ; les espaces autour des éléments sont ignorés.
-- Une chaîne vide ou uniquement composée d’espaces autorise tous les utilisateurs authentifiés par CAS. Le champ est facultatif dans une déclaration de middleware existante.
-- Les identifiants sont sensibles à la casse : `Alice` et `alice` sont distincts. Les jokers ne sont pas interprétés.
-- Une liste contenant un élément vide, comme `"alice,,bob"` ou `"alice,"`, est refusée.
-
-Avec les labels, conserver explicitement `allowedLogins=` pour déclarer un middleware sans restriction de login.
-
-L’autorisation est vérifiée à chaque requête. Une session obtenue sur un site ne donne pas accès à un autre site dont la liste exclut l’utilisateur. Le retrait d’un login s’applique dès que Traefik active la nouvelle configuration du middleware, sans attendre l’expiration du cookie. Un refus sur un site ne déconnecte pas l’utilisateur des autres sites.
-
-## Routes réservées et applications sous un préfixe
-
-Le chemin `/__cln_iap` et tout le préfixe `/__cln_iap/` sont réservés. Le callback doit passer par **le même middleware** que l’application, avant toute réécriture de chemin. Il ne faut pas l’exclure de l’authentification dans Traefik : le plugin le traite lui-même.
-
-Un routeur `Host(...)` couvre déjà ce chemin. Si l’application utilise seulement `PathPrefix('/outils')`, ajouter un routeur pour le callback sur le même hôte :
-
-```yaml
-http:
-  routers:
-    outils-callback:
-      rule: "Host(`outils.example.org`) && PathPrefix(`/__cln_iap`)"
-      entryPoints: [websecure]
-      tls: {}
-      service: outils
-      middlewares: [outils-iap]
-```
-
-Conserver la configuration TLS et le fournisseur correspondant à votre installation. Le service `outils` et le middleware `outils-iap` doivent exister. Le plugin répond au callback sans transmettre la requête à l’application.
-
-Si plusieurs applications partagent un même hôte, utiliser la même politique de connexion sur cet hôte ou leur attribuer des sous-domaines distincts : le chemin de callback est commun à l’hôte.
-
-## Comportement et dépannage
-
-| Réponse | Signification |
-| --- | --- |
-| Redirection vers CAS | Absence de session valide pour une requête GET ou HEAD. |
-| `401` | Session absente ou invalide pour une autre méthode, notamment POST. La requête n’est pas rejouée après connexion. |
-| `403` | Utilisateur connecté, mais login non autorisé sur ce service. |
-| `400` | Origine non autorisée, requête non HTTPS ou parcours de connexion invalide/expiré. |
-| `404` | Chemin réservé inconnu. |
-| `405` | Méthode non autorisée sur le callback. |
-| `502` | Validation CAS impossible, ticket refusé ou réponse CAS invalide. |
-
-Un parcours de connexion expire après cinq minutes. En cas d’expiration, rouvrir la page de l’application. Deux connexions simultanées sur le même hôte peuvent se remplacer : recommencer depuis la page souhaitée.
-
-Les cookies sont sécurisés, inaccessibles au JavaScript et envoyés uniquement en HTTPS. Une session valide continue à fonctionner pendant une indisponibilité de CAS, jusqu’à son expiration. Une déconnexion de CAS ne révoque pas immédiatement le cookie cln-iap ; sa durée est contrôlée par `CLN_IAP_JWT_TTL`.
-
-Les événements du plugin apparaissent dans les logs Traefik, sans login, ticket, cookie ou secret. Configurer séparément les journaux d’accès de Traefik pour éviter d’y enregistrer la query des callbacks ou les en-têtes Cookie.
-
-Le middleware doit être attaché à tous les routeurs donnant accès à l’application. Le plugin ne peut pas protéger un routeur auquel il n’est pas attaché, ni un accès direct au port de l’application.
 
 ## Exemples par environnement
 
