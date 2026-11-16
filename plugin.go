@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -88,13 +89,28 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 	if cfg == nil || next == nil {
 		return nil, errors.New("missing middleware configuration or handler")
 	}
-	c, err := loadConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	a := newApp(c, newLogger(os.Stdout, c.logLevel))
-	a.next = next
-	return a, nil
+	// Catalog validation calls New without administrator environment or files.
+	// Load once on first use, and deny every request if configuration fails.
+	local := *cfg
+	var once sync.Once
+	var a *app
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() {
+			c, err := loadConfig(&local)
+			if err != nil {
+				newLogger(os.Stdout, slog.LevelInfo).Error("configuration_error", "middleware", name, "error", err.Error())
+				return
+			}
+			a = newApp(c, newLogger(os.Stdout, c.logLevel))
+			a.next = next
+		})
+		if a == nil {
+			privateResponse(w)
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		a.ServeHTTP(w, r)
+	}), nil
 }
 
 func loadConfig(local *Config) (config, error) {

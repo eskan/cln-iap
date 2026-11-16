@@ -70,7 +70,9 @@ Le secret doit contenir au moins 32 octets aléatoires. Ce secret peut être ré
 
 **Ces propriétés appartiennent exclusivement à l’administrateur.** Elles ne sont pas configurables par les labels des applications. Les déployeurs des applications n’ont besoin ni du secret ni d’une copie de la configuration commune. `allowedLogins` reste propre au middleware de chaque application.
 
-Après modification de la configuration commune ou du secret, redémarrer les réplicas Traefik de façon coordonnée. Un changement de secret invalide les sessions existantes. Une configuration absente ou invalide empêche la création du middleware.
+La configuration commune et le secret sont chargés une seule fois, à la première requête, afin de permettre l’instanciation par l’analyseur du catalogue sans configuration administrateur. Une configuration absente ou invalide produit une erreur `configuration_error` dans les logs et bloque toutes les requêtes avec une réponse HTTP 503, sans transmettre de requête à l’application.
+
+Après modification de la configuration commune ou du secret, redémarrer les réplicas Traefik de façon coordonnée, y compris après un échec de chargement. Un changement de secret invalide les sessions existantes.
 
 ### Autoriser les retours dans CAS
 

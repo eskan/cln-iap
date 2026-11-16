@@ -11,9 +11,69 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestCatalogInitializationWithoutAdministratorConfig(t *testing.T) {
+	for _, key := range []string{"CAS_URL", "COOKIE_DOMAIN", "ALLOWED_HOSTS", "JWT_SECRET", "JWT_SECRET_FILE", "JWT_TTL", "LOG_LEVEL"} {
+		t.Setenv("CLN_IAP_"+key, "")
+	}
+	handler, err := New(context.Background(), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("unconfigured middleware reached downstream")
+	}), CreateConfig(), "catalog")
+	if err != nil {
+		t.Fatalf("catalog cannot instantiate plugin: %v", err)
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, verifyRequest("app1.example.org", "/", "GET"))
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Location") != "" || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("unconfigured response: status=%d headers=%v", w.Code, w.Header())
+	}
+}
+
+func TestDeferredSecretLoadingConcurrentRequests(t *testing.T) {
+	setAdministratorEnv(t)
+	secretFile := filepath.Join(t.TempDir(), "secret")
+	t.Setenv("CLN_IAP_JWT_SECRET", "")
+	t.Setenv("CLN_IAP_JWT_SECRET_FILE", secretFile)
+	handler, err := New(context.Background(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}), &Config{AllowedLogins: "alice"}, "concurrent")
+	if err != nil {
+		t.Fatalf("New must not read secret file: %v", err)
+	}
+	if err := os.WriteFile(secretFile, testApp().secret, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := authToken(testApp(), "alice")
+	var workers sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			r := verifyRequest("app1.example.org", "/", "GET")
+			r.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusAccepted {
+				t.Errorf("concurrent request: status=%d", w.Code)
+			}
+		}()
+	}
+	workers.Wait()
+	if err := os.Remove(secretFile); err != nil {
+		t.Fatal(err)
+	}
+	r := verifyRequest("app1.example.org", "/", "GET")
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("configuration was reloaded: status=%d", w.Code)
+	}
+}
 
 func testGlobal() adminConfig {
 	return adminConfig{CASURL: "https://cas.example.net/cas", CookieDomain: "example.org", AllowedHosts: []string{"app1.example.org", "app2.example.org"}, JWTSecret: strings.Repeat("s", 32)}

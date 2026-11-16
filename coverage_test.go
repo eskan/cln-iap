@@ -32,21 +32,36 @@ func TestMiddlewareInitialization(t *testing.T) {
 	}
 	setAdministratorEnv(t)
 	t.Setenv("CLN_IAP_CAS_URL", "")
-	if handler, err := New(context.Background(), next, CreateConfig(), "test"); err == nil || handler != nil {
-		t.Fatalf("missing environment: handler=%v error=%v", handler, err)
-	}
-	t.Setenv("CLN_IAP_CAS_URL", "https://cas.example.net/cas")
-	handler, err := New(context.Background(), next, &Config{AllowedLogins: "alice"}, "test")
+	handler, err := New(context.Background(), next, CreateConfig(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := handler.(*app)
-	if !a.allowedLogin("alice") || a.allowedLogin("bob") {
-		t.Fatal("local restrictions lost")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, verifyRequest("app1.example.org", "/", "GET"))
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("missing environment: status=%d headers=%v", w.Code, w.Header())
 	}
-	w := request(a, "/", authToken(a, "alice"))
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("downstream status=%d", w.Code)
+	t.Setenv("CLN_IAP_CAS_URL", "https://cas.example.net/cas")
+	// Failed initialization stays closed until the middleware is recreated.
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, verifyRequest("app1.example.org", "/", "GET"))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("failed initialization was retried: status=%d", w.Code)
+	}
+	local := &Config{AllowedLogins: "alice"}
+	handler, err = New(context.Background(), next, local, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.AllowedLogins = "bob" // New retains its own configuration snapshot.
+	for user, status := range map[string]int{"alice": http.StatusAccepted, "bob": http.StatusForbidden} {
+		r := verifyRequest("app1.example.org", "/", "GET")
+		r.AddCookie(authToken(testApp(), user))
+		w = httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != status {
+			t.Fatalf("user=%s status=%d want=%d", user, w.Code, status)
+		}
 	}
 }
 
