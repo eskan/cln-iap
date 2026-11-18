@@ -30,12 +30,13 @@ import (
 )
 
 type integration struct {
-	client    *http.Client
-	calls     atomic.Int32
-	logins    atomic.Int32
-	configDir string
-	container string
-	docker    func(...string) string
+	client      *http.Client
+	calls       atomic.Int32
+	ldapLookups <-chan string
+	logins      atomic.Int32
+	configDir   string
+	container   string
+	docker      func(...string) string
 }
 
 func startTraefik(t testing.TB) *integration {
@@ -52,6 +53,8 @@ func startTraefik(t testing.TB) *integration {
 		}
 		return strings.TrimSpace(string(out))
 	}
+	ldapSettings, lookups := ldapFixture(t, 1, 0)
+	f.ldapLookups = lookups
 	dir := t.TempDir()
 	f.configDir = dir
 	write := func(name string, data []byte) {
@@ -120,6 +123,22 @@ func startTraefik(t testing.TB) *integration {
 	t.Cleanup(backend.Close)
 	_, port, _ := net.SplitHostPort(backend.Listener.Addr().String())
 	write("secret", []byte(strings.Repeat("s", 32)))
+	ldapURL, _ := url.Parse(ldapSettings.URL)
+	ldapSettings.URL = "ldaps://example.com:" + ldapURL.Port()
+	ldapSettings.PasswordFile = "/etc/traefik/ldap-password"
+	ldapSettings.AllowedAttributes = []string{"eduPersonAffiliation"}
+	ca, err := os.ReadFile(ldapSettings.CAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("ldap-ca.pem", ca)
+	ldapSettings.CAFile = "/etc/traefik/ldap-ca.pem"
+	ldapJSON, err := json.Marshal(ldapSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("ldap.json", ldapJSON)
+	write("ldap-password", []byte("secret"))
 	router := func(rule, middleware string) map[string]interface{} {
 		r := map[string]interface{}{"rule": rule, "service": "app", "tls": map[string]interface{}{}}
 		if middleware != "" {
@@ -134,23 +153,29 @@ func startTraefik(t testing.TB) *integration {
 		"tls": map[string]interface{}{"certificates": []interface{}{map[string]string{"certFile": "/etc/traefik/cert.pem", "keyFile": "/etc/traefik/key.pem"}}},
 		"http": map[string]interface{}{
 			"routers": map[string]interface{}{
-				"app1":     router("Host(`app1.example.org`)", "open"),
-				"private":  router("Host(`app1.example.org`) && PathPrefix(`/private`)", "restricted"),
-				"app2":     router("Host(`app2.example.org`) && (PathPrefix(`/tools`) || PathPrefix(`/__cln_iap`))", "allowed"),
-				"cas":      router("Host(`cas.example.net`)", ""),
-				"baseline": router("Host(`baseline.example.org`)", ""),
-				"evil":     router("Host(`evil.example.org`)", "open"),
+				"ldap-allowed": router("Host(`app1.example.org`) && PathPrefix(`/ldap-allowed`)", "ldap-allowed"),
+				"ldap-denied":  router("Host(`app1.example.org`) && PathPrefix(`/ldap-denied`)", "ldap-denied"),
+				"app1":         router("Host(`app1.example.org`)", "open"),
+				"private":      router("Host(`app1.example.org`) && PathPrefix(`/private`)", "restricted"),
+				"app2":         router("Host(`app2.example.org`) && (PathPrefix(`/tools`) || PathPrefix(`/__cln_iap`))", "allowed"),
+				"cas":          router("Host(`cas.example.net`)", ""),
+				"baseline":     router("Host(`baseline.example.org`)", ""),
+				"evil":         router("Host(`evil.example.org`)", "open"),
 			},
 			"middlewares": map[string]interface{}{"open": middleware(""), "allowed": middleware("alice,bob"), "restricted": middleware("bob")},
 			"services":    map[string]interface{}{"app": map[string]interface{}{"loadBalancer": map[string]interface{}{"servers": []interface{}{map[string]string{"url": "http://host.docker.internal:" + port}}}}},
 		}}
+	middlewares := dynamic["http"].(map[string]interface{})["middlewares"].(map[string]interface{})
+	for name, value := range map[string]string{"ldap-allowed": "staff", "ldap-denied": "faculty"} {
+		middlewares[name] = map[string]interface{}{"plugin": map[string]interface{}{"cln-iap": &Config{LDAPAttribute: "eduPersonAffiliation", LDAPAllowedValues: []string{value}}}}
+	}
 	data, _ := json.Marshal(dynamic)
 	write("dynamic.yml", data)
 	root, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.container = f.docker("run", "-d", "--rm", "--add-host", "host.docker.internal:host-gateway", "--add-host", "cas.example.net:127.0.0.1", "-p", "127.0.0.1::443", "-v", dir+":/etc/traefik:ro", "-v", root+":/plugins-local/src/github.com/eskan/cln-iap:ro", "-e", "SSL_CERT_FILE=/etc/traefik/cert.pem", "-e", "CLN_IAP_CAS_URL=https://cas.example.net", "-e", "CLN_IAP_COOKIE_DOMAIN=example.org", "-e", "CLN_IAP_ALLOWED_HOSTS=app1.example.org,app2.example.org", "-e", "CLN_IAP_JWT_SECRET_FILE=/etc/traefik/secret", "-e", "CLN_IAP_LOG_LEVEL=debug", "traefik:v3.7.17", "--entrypoints.websecure.address=:443", "--providers.file.filename=/etc/traefik/dynamic.yml", "--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap")
+	f.container = f.docker("run", "-d", "--rm", "--add-host", "host.docker.internal:host-gateway", "--add-host", "example.com:host-gateway", "--add-host", "cas.example.net:127.0.0.1", "-p", "127.0.0.1::443", "-v", dir+":/etc/traefik:ro", "-v", root+":/plugins-local/src/github.com/eskan/cln-iap:ro", "-e", "SSL_CERT_FILE=/etc/traefik/cert.pem", "-e", "CLN_IAP_CAS_URL=https://cas.example.net", "-e", "CLN_IAP_COOKIE_DOMAIN=example.org", "-e", "CLN_IAP_ALLOWED_HOSTS=app1.example.org,app2.example.org", "-e", "CLN_IAP_JWT_SECRET_FILE=/etc/traefik/secret", "-e", "CLN_IAP_LOG_LEVEL=debug", "-e", "CLN_IAP_LDAP_CONFIG_FILE=/etc/traefik/ldap.json", "traefik:v3.7.17", "--entrypoints.websecure.address=:443", "--providers.file.filename=/etc/traefik/dynamic.yml", "--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap")
 	t.Cleanup(func() {
 		if t.Failed() {
 			out, _ := exec.Command("docker", "logs", f.container).CombinedOutput()
@@ -226,6 +251,23 @@ func TestTraefik(t *testing.T) {
 	if code != 200 || body != "GET:app1.example.org/a%2Fb?x=1&x=2:" || h.Get("Cache-Control") != "public, max-age=60" {
 		t.Fatal("CAS flow", code, body)
 	}
+	for path, want := range map[string]int{"ldap-allowed": 200, "ldap-denied": 403} {
+		before := f.calls.Load()
+		if code, _, _ := get(&noRedirect, "GET", "https://app1.example.org/"+path, ""); code != want {
+			t.Fatalf("LDAP %s: %d", path, code)
+		}
+		if want == 403 && f.calls.Load() != before {
+			t.Fatal("LDAP denial reached backend")
+		}
+		expectLookup(t, f.ldapLookups, "alice")
+	}
+	for _, path := range []string{"/ldap-allowed/image.png", "/ldap-allowed/style.css"} {
+		code, _, headers := get(&noRedirect, "GET", "https://app1.example.org"+path, "")
+		if code != 200 || headers.Get("Set-Cookie") != "" || headers.Get("Cache-Control") != "no-store" {
+			t.Fatalf("LDAP authorization reuse: %d %v", code, headers)
+		}
+	}
+	expectNoLookup(t, f.ldapLookups)
 	n := f.logins.Load()
 	if code, body, _ = get(&noRedirect, "GET", "https://app2.example.org/tools/second", ""); code != 200 || body != "GET:app2.example.org/tools/second:" || f.logins.Load() != n {
 		t.Fatal("shared session", code, body)
@@ -255,6 +297,7 @@ func TestTraefik(t *testing.T) {
 	}
 	middlewares := dynamic["http"].(map[string]interface{})["middlewares"].(map[string]interface{})
 	middlewares["allowed"].(map[string]interface{})["plugin"].(map[string]interface{})["cln-iap"].(map[string]interface{})["allowedLogins"] = "bob"
+	middlewares["ldap-allowed"].(map[string]interface{})["plugin"].(map[string]interface{})["cln-iap"].(map[string]interface{})["ldapAllowedValues"] = []string{"faculty"}
 	data, err = json.Marshal(dynamic)
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +319,17 @@ func TestTraefik(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	for {
+		code, _, _ = get(&noRedirect, "GET", "https://app1.example.org/ldap-allowed/image.png", "")
+		if code == 403 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("LDAP rule change did not invalidate authorization: %d", code)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	expectLookup(t, f.ldapLookups, "alice")
 	if code, _, _ = get(&noRedirect, "GET", "https://app1.example.org/", ""); code != 200 {
 		t.Fatal("shared session deleted")
 	}

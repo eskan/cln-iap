@@ -32,12 +32,15 @@ var b64 = base64.RawURLEncoding.Strict()
 var errInvalid = errors.New("invalid authentication data")
 
 type config struct {
-	cas, domain string
-	hosts       map[string]bool
-	logins      map[string]bool
-	secret      []byte
-	ttl         time.Duration
-	logLevel    slog.Level
+	cas, domain   string
+	hosts         map[string]bool
+	logins        map[string]bool
+	secret        []byte
+	ttl           time.Duration
+	ldap          *ldapSettings
+	ldapAttribute string
+	ldapValues    map[string]bool
+	logLevel      slog.Level
 }
 
 func dnsName(s string) bool {
@@ -70,7 +73,9 @@ func httpsURL(s string) (*url.URL, error) {
 const callbackPath = "/__cln_iap/callback"
 
 type Config struct {
-	AllowedLogins string `json:"allowedLogins,omitempty"`
+	AllowedLogins     string   `json:"allowedLogins,omitempty"`
+	LDAPAttribute     string   `json:"ldapAttribute,omitempty"`
+	LDAPAllowedValues []string `json:"ldapAllowedValues,omitempty"`
 }
 
 type adminConfig struct {
@@ -81,6 +86,7 @@ type adminConfig struct {
 	JWTSecretFile string
 	JWTTTL        string
 	LogLevel      string
+	LDAPFile      string
 }
 
 func CreateConfig() *Config { return &Config{} }
@@ -92,6 +98,7 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 	// Catalog validation calls New without administrator environment or files.
 	// Load once on first use, and deny every request if configuration fails.
 	local := *cfg
+	local.LDAPAllowedValues = append([]string(nil), cfg.LDAPAllowedValues...)
 	var once sync.Once
 	var a *app
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +110,7 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 			}
 			a = newApp(c, newLogger(os.Stdout, c.logLevel))
 			a.next = next
+			a.name = name
 		})
 		if a == nil {
 			privateResponse(w)
@@ -122,6 +130,7 @@ func loadConfig(local *Config) (config, error) {
 		JWTSecretFile: os.Getenv("CLN_IAP_JWT_SECRET_FILE"),
 		JWTTTL:        os.Getenv("CLN_IAP_JWT_TTL"),
 		LogLevel:      os.Getenv("CLN_IAP_LOG_LEVEL"),
+		LDAPFile:      os.Getenv("CLN_IAP_LDAP_CONFIG_FILE"),
 	}, local)
 }
 
@@ -183,6 +192,9 @@ func configure(global adminConfig, local *Config) (config, error) {
 	if len(c.secret) < 32 {
 		return c, errors.New("JWT secret must contain at least 32 random bytes")
 	}
+	if err := configureLDAP(&c, global.LDAPFile, local); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 
@@ -208,6 +220,7 @@ func newLogger(w io.Writer, level slog.Level) *slog.Logger {
 type app struct {
 	next http.Handler
 	config
+	name    string
 	flowKey []byte
 	client  *http.Client
 	logger  *slog.Logger
@@ -368,11 +381,18 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.callback(w, r)
 		return
 	}
-	c, valid := a.session(oneCookie(r, authCookie))
+	sessionToken := oneCookie(r, authCookie)
+	c, valid := a.session(sessionToken)
 	if valid {
 		if !a.allowedLogin(c.Subject) {
 			a.reject(w, 403, slog.LevelWarn, "login_not_allowed")
 			return
+		}
+		if !a.authorizeLDAP(w, r, c, sessionToken) {
+			return
+		}
+		if a.ldap != nil {
+			w = &authorizationResponse{ResponseWriter: w}
 		}
 		a.next.ServeHTTP(w, r)
 		return
@@ -459,6 +479,9 @@ func (a *app) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	setCookie(w, authCookie, token, a.domain, time.Unix(c.Expires, 0), int(a.ttl/time.Second))
 	setCookie(w, flowCookie, "", "", time.Unix(1, 0), -1)
+	if !a.authorizeLDAP(w, r, c, token) {
+		return
+	}
 	a.logger.Info("authentication_succeeded", "status", 303, "duration_ms", time.Since(started).Milliseconds())
 	http.Redirect(w, r, f.Return, 303)
 }
