@@ -1,8 +1,12 @@
 # Docker Compose
 
-[Guide utilisateur](../README.md)
+[Guide utilisateur](../README.md) · [Paramètres communs](configuration.md)
 
-Sur le service Traefik existant, ajouter ces volumes en adaptant les chemins sources :
+## Traefik
+
+Traefik a besoin du répertoire du plugin et du fichier secret qui protège les sessions. Préparer ces fichiers comme indiqué dans le [guide utilisateur](../README.md) ; les volumes ci-dessous les rendent accessibles dans le conteneur, sans les fournir aux applications.
+
+Ajouter ces montages au service Traefik existant, en adaptant les chemins sources :
 
 ```yaml
 volumes:
@@ -10,7 +14,7 @@ volumes:
   - ./cln_iap_jwt:/run/secrets/cln_iap_jwt:ro
 ```
 
-Définir les variables communes sur le service Traefik :
+Les variables d’environnement indiquent le serveur CAS, les sites partageant la session et l’emplacement du secret dans le conteneur. Adapter ces valeurs au déploiement :
 
 ```yaml
 environment:
@@ -22,9 +26,11 @@ environment:
   CLN_IAP_LOG_LEVEL: "info"
 ```
 
-Ajouter l’option statique `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` aux options existantes, puis redémarrer Traefik. Conserver ses fournisseurs, réseaux, entrypoints et certificats HTTPS.
+Ajouter `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` aux options existantes et redémarrer Traefik. Conserver ses réseaux, fournisseurs et paramètres HTTPS.
 
-Sur le service de l’application :
+## Application
+
+Les labels définissent la règle d’accès puis l’appliquent au routeur. Cet exemple réserve `mon-app` aux logins CAS `alice` et `bob`. Ajouter aux labels du service :
 
 ```yaml
 labels:
@@ -32,4 +38,4 @@ labels:
   - "traefik.http.routers.mon-app.middlewares=mon-app-iap"
 ```
 
-Le routeur `mon-app` doit exister et couvrir le callback sur le domaine de l’application. Utiliser un nom de middleware distinct par politique d’accès. Voir également [compose.yaml](../compose.yaml), un fragment à intégrer à vos services existants.
+Le routeur HTTPS doit couvrir `/__cln_iap/callback`. Placer cln-iap avant les réécritures de chemin. Le [fragment Compose](../compose.yaml) regroupe ces réglages ; les [règles LDAP](ldap.md) sont facultatives.

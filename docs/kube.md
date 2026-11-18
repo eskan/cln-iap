@@ -1,23 +1,26 @@
 # Kubernetes
 
-[Guide utilisateur](../README.md)
+[Guide utilisateur](../README.md) · [Paramètres communs](configuration.md)
 
-Configurer le déploiement Traefik avec :
+## Traefik
 
-- Le plugin monté en lecture seule dans `/plugins-local/src/github.com/eskan/cln-iap`.
-- L’argument `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap`.
-- Les variables `CLN_IAP_*` dans l’environnement du conteneur Traefik.
-- Un Secret contenant la clé de session, monté à `/run/secrets/cln_iap_jwt`.
+Le déploiement Traefik reçoit le plugin, les paramètres CAS et le secret qui protège les sessions. Ce secret est conservé dans un Secret Kubernetes, accessible uniquement aux pods Traefik. Préparer le répertoire du plugin et le fichier `cln_iap_jwt` selon le [guide utilisateur](../README.md).
 
-Créer le Secret dans le namespace de Traefik, à partir des fichiers préparés par l’administrateur :
+Monter le plugin en lecture seule dans `/plugins-local/src/github.com/eskan/cln-iap` et ajouter l’argument `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` au déploiement Traefik.
+
+Créer le Secret dans son namespace :
 
 ```sh
 kubectl -n traefik create secret generic cln-iap-jwt --from-file=cln_iap_jwt
 ```
 
-Réserver l’accès au Secret au déploiement Traefik. Définir `CLN_IAP_JWT_SECRET_FILE=/run/secrets/cln_iap_jwt`. Le [fragment administrateur](../deploy/kube-traefik.yaml) présente les variables et le montage à intégrer au déploiement existant de Traefik. Aucun ConfigMap JSON n’est nécessaire. Conserver les arguments, les fournisseurs, les volumes du plugin et les certificats existants. Redémarrer les pods après modification des variables ou du Secret.
+Intégrer le [fragment administrateur](../deploy/kube-traefik.yaml) pour les variables communes et le montage du Secret à `/run/secrets/cln_iap_jwt`. Réserver l’accès au Secret à Traefik et définir `CLN_IAP_JWT_SECRET_FILE` avec ce chemin. Redémarrer les pods après modification.
 
-Dans le namespace de l’application, appliquer le [middleware](../deploy/kube.yaml), puis le référencer dans l’IngressRoute HTTPS :
+## Application
+
+La ressource Middleware contient les règles d’accès ; l’IngressRoute les applique au trafic de l’application. L’[exemple de middleware](../deploy/kube.yaml) autorise les logins CAS `alice` et `bob`.
+
+Appliquer le [middleware](../deploy/kube.yaml) dans le namespace de l’application, puis le référencer dans son IngressRoute HTTPS :
 
 ```yaml
 spec:
@@ -31,4 +34,4 @@ spec:
           port: 80
 ```
 
-Conserver les entrypoints et la configuration TLS de l’IngressRoute. Placer ce middleware avant ceux qui modifient les chemins. Le routeur doit aussi couvrir `/__cln_iap/callback`.
+Conserver les entrypoints et la configuration TLS. Placer cln-iap avant les réécritures de chemin et inclure `/__cln_iap/callback` dans le routage. Les [règles LDAP](ldap.md) sont facultatives.

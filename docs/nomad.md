@@ -1,13 +1,16 @@
 # Nomad
 
-[Guide utilisateur](../README.md)
+[Guide utilisateur](../README.md) · [Paramètres communs](configuration.md)
 
-Dans la tâche Traefik existante, activer le plugin avec `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap` et monter :
+## Traefik
 
-- Le répertoire du plugin dans `/plugins-local/src/github.com/eskan/cln-iap`.
-- Le secret dans `/secrets/cln_iap_jwt`.
+La tâche Traefik reçoit le plugin, les paramètres CAS et le secret commun aux sessions. Dans cet exemple, le secret est conservé dans le champ `jwt_secret` de la variable Nomad `nomad/jobs/traefik`, puis fourni à Traefik sous forme de fichier.
 
-Définir les paramètres communs dans le bloc `env` de la tâche Traefik :
+Préparer le plugin et le secret selon le [guide utilisateur](../README.md), puis renseigner cette variable avec un accès réservé à la tâche Traefik.
+
+Dans la tâche Traefik, monter le plugin en lecture seule dans `/plugins-local/src/github.com/eskan/cln-iap` et ajouter l’option `--experimental.localplugins.cln-iap.modulename=github.com/eskan/cln-iap`.
+
+Définir les paramètres et fournir le secret avec une variable Nomad réservée à Traefik :
 
 ```hcl
 env {
@@ -28,9 +31,13 @@ template {
 }
 ```
 
-Le template fournit le secret à `/secrets/cln_iap_jwt` dans le conteneur Traefik. Réserver l’accès à la variable Nomad à la tâche Traefik. Redéployer Traefik après modification de son environnement ; un changement du secret redémarre la tâche. Conserver le fournisseur et les paramètres HTTPS existants. Aucun secret n’est fourni aux applications.
+Rendre `/secrets/cln_iap_jwt` accessible dans le conteneur Traefik. Redéployer après modification de l’environnement ; un changement du secret redémarre la tâche.
 
-Dans le bloc `service` de l’application, enregistré avec `provider = "nomad"`, ajouter aux tags existants :
+## Application
+
+Les tags déclarent le middleware et l’associent au routeur de l’application. Cet exemple limite l’accès aux logins CAS `alice` et `bob`.
+
+Dans le bloc `service` enregistré avec `provider = "nomad"`, ajouter aux tags :
 
 ```hcl
 tags = [
@@ -39,4 +46,4 @@ tags = [
 ]
 ```
 
-Le service applicatif ne reçoit aucun secret cln-iap. Le routeur doit couvrir le domaine de l’application et son callback `/__cln_iap/callback`. Pour une application sous un préfixe, ajouter le routeur de callback décrit dans le guide utilisateur.
+Le routeur HTTPS doit couvrir `/__cln_iap/callback`, avec cln-iap avant les réécritures de chemin. Pour une application sous un préfixe, adapter la [règle de routage](traefik.md). Les [règles LDAP](ldap.md) sont facultatives.
