@@ -1,8 +1,10 @@
-# cln-iap
+# cln-iap (séléniap)
 
-<p align="center">
-  <img src="docs/assets/cln-iap.png" alt="Un visiteur présente sa carte d’identité devant une barrière d’accès." width="200">
-</p>
+Compte tenu du climat actuel autour des failles de sécurité, il paraît essentiel de restreindre la surface d’attaque de nos applications. L’une des pistes envisagées est un Identity Aware Proxy : il vise à garantir l’authentification de l’utilisateur avant tout accès. On peut le voir comme un VPN applicatif. **Aucune modifications des applications n'est nécessaire.** Il ne remplace pas l’authentification propre à l’application, et son fonctionnement reste transparent pour l’utilisateur.
+Celui-ci se connecte sur CAS, puis accède à la page demandée. Sa session est partagée entre les sites autorisés du même domaine.
+Chaque application peut restreindre l’accès à ses propres utilisateurs. cln-iap ne se substitue pas aux contrôles d’accès de l’application et ne lui transmet pas l’identité de l’utilisateur.
+
+![Traefik sert la même application avec ou sans cln-iap. Le middleware ajoute l’authentification CAS et le contrôle LDAP facultatif sans modification de l’application.](docs/assets/cln-iap-flow.png)
 
 **cln-iap** protège les applications Web derrière **Traefik 3** avec une authentification CAS. L’utilisateur se connecte une fois et partage sa session entre les sites autorisés du même domaine. Chaque application définit ses restrictions par login et, facultativement, par attribut LDAP.
 

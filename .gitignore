@@ -1,3 +1,4 @@
 /secrets/
 /cln_iap_jwt
 /cln-iap.json
+/nomad-*.diff
